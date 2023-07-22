@@ -10,7 +10,7 @@ from django.urls import reverse
 from rest_framework import status
 from rest_framework.test import APIClient
 
-from core.models import Recipe
+from core.models import Recipe, Tag
 
 from recipe.serializers import (
     RecipeSerializer,
@@ -209,3 +209,104 @@ class PrivateRecipeAPITest(TestCase):
 
         self.assertEqual(res.status_code, status.HTTP_404_NOT_FOUND)
         self.assertTrue(Recipe.objects.filter(id=recipe.id).exists())
+
+    def test_create_recipe_with_new_tags(self):
+        """Tests creating a recipe with new tags."""
+        payload = {
+            'title': 'Milanesas empanizadas',
+            'time_minutes': 50,
+            'price': Decimal('85.95'),
+            'tags': [
+                {'name': 'res'},
+                {'name': 'comida'},
+            ],
+        }
+        res = self.client.post(RECIPES_URL, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        recipes = Recipe.objects.filter(user=self.user)
+        self.assertEqual(recipes.count(), 1)
+        recipe = recipes[0]
+        self.assertEqual(recipe.tags.count(), 2)
+        for tag in payload['tags']:
+            exists = recipe.tags.filter(
+                name=tag['name'],
+                user=self.user,
+            ).exists()
+            self.assertTrue(exists)
+
+    def test_create_recipe_with_existing_tag(self):
+        """Test crating a recipe with existing tag."""
+        tag_mexican = Tag.objects.create(user=self.user, name='mexican')
+        payload = {
+            'title': 'Mole de olla',
+            'time_minutes': 60,
+            'price': Decimal('119.99'),
+            'tags': [
+                {'name': 'mexican'},
+                {'name': 'soups'},
+            ],
+        }
+        res = self.client.post(RECIPES_URL, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_201_CREATED)
+        recipes = Recipe.objects.filter(user=self.user)
+        self.assertEqual(recipes.count(), 1)
+        recipe = recipes[0]
+        self.assertEqual(recipe.tags.count(), 2)
+        self.assertIn(tag_mexican, recipe.tags.all())
+        for tag in payload['tags']:
+            exists = recipe.tags.filter(
+                user=self.user,
+                name=tag['name'],
+            )
+            self.assertTrue(exists)
+
+    def test_create_tag_on_update(self):
+        """Test create tag when updating a recipe."""
+        recipe = create_recipe(user=self.user)
+
+        payload = {
+            'tags': [
+                {'name': 'desayuno'},
+            ],
+        }
+
+        url = detail_url(recipe.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        new_tag = Tag.objects.get(user=self.user, name='desayuno')
+        self.assertIn(new_tag, recipe.tags.all())
+
+    def test_update_recipe_assign_tag(self):
+        """Tests assigning an existing tag when updating a recipe."""
+        tag_malteadas = Tag.objects.create(user=self.user, name='malteadas')
+        recipe = create_recipe(user=self.user)
+        recipe.tags.add(tag_malteadas)
+
+        tag_bebidas = Tag.objects.create(user=self.user, name='bebidas')
+        payload = {
+            'tags': [
+                {'name': 'bebidas'},
+            ],
+        }
+        url = detail_url(recipe.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertIn(tag_bebidas, recipe.tags.all())
+        self.assertNotIn(tag_malteadas, recipe.tags.all())
+
+    def test_clear_recipe_tags(self):
+        """Tests clearing a recipe tags."""
+        tag = Tag.objects.create(user=self.user, name='meats')
+        recipe = create_recipe(user=self.user)
+        recipe.tags.add(tag)
+
+        payload = {'tags': []}
+        url = detail_url(recipe.id)
+        res = self.client.patch(url, payload, format='json')
+
+        self.assertEqual(res.status_code, status.HTTP_200_OK)
+        self.assertEqual(recipe.tags.count(), 0)
