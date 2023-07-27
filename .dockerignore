@@ -19,3 +19,6 @@ venv/
 .env.local
 .env.test
 .env.production
+
+# VS Code
+.vscode/
